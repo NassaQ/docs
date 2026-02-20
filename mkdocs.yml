@@ -1,0 +1,145 @@
+# ==============================================================================
+# NassaQ Documentation - MkDocs Configuration
+# ==============================================================================
+
+site_name: NassaQ Docs
+site_description: Technical documentation for the NassaQ AI-powered document management platform
+site_url: https://nassaq.github.io/docs
+repo_url: https://github.com/NassaQ
+repo_name: NassaQ
+
+# ==============================================================================
+# Theme Configuration
+# ==============================================================================
+theme:
+  name: zensical
+
+  language: en
+  
+  palette:
+    # Dark mode (default)
+    - scheme: slate
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    # Light mode
+    - scheme: default
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/file-document-multiple
+
+  features:
+    - navigation.sections         # Expandable sections in sidebar
+    - navigation.expand           # Auto-expand sidebar sections
+    - navigation.path             # Breadcrumb path
+    - navigation.top              # Back-to-top button
+    - navigation.indexes          # Section index pages
+    - search.suggest              # Search suggestions
+    - search.highlight            # Highlight search terms in results
+    - content.code.copy           # Copy button on code blocks
+    - content.code.annotate       # Code annotations
+    - content.tabs.link           # Linked content tabs
+
+# ==============================================================================
+# Navigation
+# ==============================================================================
+nav:
+  - NassaQ Overview:
+    - Introduction: index.md
+    - System Architecture: overview/architecture.md
+  - User Guide & Setup:
+    - Deployment Guide: setup/deployment.md
+    - Backend Server Setup: setup/backend.md
+    - Frontend UI Setup: setup/frontend.md
+    - OCR Worker Setup: setup/ocr-worker.md
+  - Core Concepts:
+    - Database Schema: concepts/database.md
+    - Security & Auth: concepts/security.md
+  - Developer Guides:
+    - Frontend Components: guides/frontend-components.md
+    - Frontend API Integration: guides/frontend-api.md
+    - OCR Pipelines: guides/ocr-pipelines.md
+  - API Reference:
+    - Backend Endpoints: reference/api-endpoints.md
+  - Project:
+    - Roadmap: project/roadmap.md
+    - Contributing: project/contributing.md
+
+# ==============================================================================
+# Markdown Extensions
+# ==============================================================================
+markdown_extensions:
+  # Python Markdown
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+  # PyMdown Extensions
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  
+
+
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# ==============================================================================
+# Plugins
+# ==============================================================================
+plugins:
+  - search
+  - tags
+
+# ==============================================================================
+# Extra
+# ==============================================================================
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/NassaQ
+      name: NassaQ on GitHub
+
+  generator: false   # Hide "Made with MkDocs" footer
+
+extra_css:
+  - stylesheets/extra.css
