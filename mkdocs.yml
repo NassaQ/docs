@@ -41,8 +41,11 @@ theme:
     logo: material/file-document-multiple
 
   features:
-    - navigation.sections         # Expandable sections in sidebar
-    - navigation.expand           # Auto-expand sidebar sections
+#    - navigation.sections         # Expandable sections in sidebar
+    - navigation.instant
+    - header.autohide
+#    - toc.integrate
+    # - navigation.expand           # Auto-expand sidebar sections
     - navigation.path             # Breadcrumb path
     - navigation.top              # Back-to-top button
     - navigation.indexes          # Section index pages
@@ -143,3 +146,6 @@ extra:
 
 extra_css:
   - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/dynamic-repo.js

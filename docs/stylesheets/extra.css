@@ -106,3 +106,25 @@
   gap: 1rem;
   margin: 1.5rem 0;
 }
+
+/* ==============================================================================
+   UI Layout Enhancements
+   ============================================================================== */
+
+/* Widen the documentation space for large monitors */
+.md-grid {
+  max-width: 1500px;
+}
+
+/* Improve contrast of inline code blocks */
+.md-typeset code {
+  background-color: var(--md-code-bg-color);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+}
+[data-md-color-scheme="slate"] .md-typeset code {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+[data-md-color-scheme="default"] .md-typeset code {
+  background-color: rgba(0, 0, 0, 0.05);
+}
