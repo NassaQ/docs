@@ -43,7 +43,7 @@ theme:
   features:
 #    - navigation.sections         # Expandable sections in sidebar
     - navigation.instant
-    - header.autohide
+#    - header.autohide
 #    - toc.integrate
     # - navigation.expand           # Auto-expand sidebar sections
     - navigation.path             # Breadcrumb path

@@ -1,7 +1,3 @@
----
-hide:
-  - navigation
----
 
 # NassaQ - Document Digitization Platform
 
@@ -196,20 +192,6 @@ sequenceDiagram
 | **Containers** | Docker + Docker Compose | Service orchestration |
 | **Message Broker** | RabbitMQ 3 (Alpine) | Asynchronous job distribution |
 | **Cloud** | Microsoft Azure | SQL Server, Blob Storage, Cosmos DB |
-
----
-
-## Documentation Map
-
-This documentation is organized into the following sections:
-
-| Section | What You Will Find |
-|:---|:---|
-| [**Architecture**](overview/architecture.md) | System design, database schema, security model, deployment guide, and roadmap |
-| [**OCR API**](setup/ocr-worker.md) | Setup instructions and detailed documentation of the OCR processing pipelines |
-| [**Backend Server**](setup/backend.md) | Setup instructions, complete API reference, and authentication flow documentation |
-| [**User Interface**](setup/frontend.md) | Setup instructions, component architecture, and API integration details |
-| [**Team**](project/contributing.md) | Meet the team behind NassaQ and learn about the project's development practices |
 
 ---
 
