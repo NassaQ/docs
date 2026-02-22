@@ -128,3 +128,61 @@
 [data-md-color-scheme="default"] .md-typeset code {
   background-color: rgba(0, 0, 0, 0.05);
 }
+
+/* Increase the height of the top navigation bar */
+:root {
+  --md-header-height: 4rem; /* Default is usually 2.4rem or 3rem */
+}
+
+/* Ensure inner content stretches to the new height and is vertically centered */
+.md-header__inner {
+  height: var(--md-header-height);
+  align-items: center;
+}
+
+/* Adjust the logo/title sizing slightly to match the larger header */
+.md-header__button.md-logo {
+  padding: 0.8rem;
+}
+
+.md-header__button.md-logo svg {
+  height: 1.8rem;
+  width: 1.8rem;
+}
+
+.md-header__title {
+  font-size: 1.2rem;
+}
+
+/* Make sure the tabs navigation (if ever re-enabled) clears the taller header */
+.md-tabs {
+  top: var(--md-header-height);
+}
+
+/* ==============================================================================
+   Header Fixes (Remove Red Background & Align Icon)
+   ============================================================================== */
+
+/* 1. Remove the red background from the top bar elements */
+.md-header,
+.md-header__title,
+.md-header__button,
+.md-header__source {
+  background-color: transparent !important;
+}
+
+/* 2. Vertically center the text and the icon together */
+.md-header__title,
+.md-header__button.md-logo,
+.md-source__repository {
+  display: flex !important;
+  align-items: center !important;
+  gap: 1rem; /* Space between icon and text */
+}
+
+/* 3. Strip native margins from the logo to prevent it from pushing the text down */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  margin: 0 !important; 
+  padding: 0 !important;
+}
