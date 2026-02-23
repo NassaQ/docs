@@ -173,11 +173,16 @@
 
 /* 2. Vertically center the text and the icon together */
 .md-header__title,
-.md-header__button.md-logo,
-.md-source__repository {
+.md-header__button.md-logo {
   display: flex !important;
   align-items: center !important;
-  gap: 1rem; /* Space between icon and text */
+  gap: 2rem; 
+}
+
+/* Add this to center the GitHub icon with its text block properly */
+.md-source {
+  display: flex;
+  align-items: center;
 }
 
 /* 3. Strip native margins from the logo to prevent it from pushing the text down */
@@ -185,4 +190,18 @@
 .md-header__button.md-logo svg {
   margin: 0 !important; 
   padding: 0 !important;
+}
+
+/* ==============================================================================
+   Layout Spacing Fixes
+   ============================================================================== */
+
+/* Reduce the gap between the taller header and the page content */
+.md-main__inner {
+  margin-top: 0.5rem !important; /* Default is usually 1.5rem */
+}
+
+/* Prevent the sidebars from being pushed down */
+.md-sidebar {
+  padding-top: 0.5rem !important; 
 }
