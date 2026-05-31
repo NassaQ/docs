@@ -1,240 +1,74 @@
-# Roadmap
+# Roadmap & Accomplishments
 
-Current development status, known TODOs from the source code, and planned features for the NassaQ platform.
+This page documents the development milestones, implementation status, and recent accomplishments of the NassaQ graduation project.
 
-## Current Status
+---
 
-### Implementation Overview
+## Graduation Project Milestones
+
+NassaQ has achieved all its core research and engineering targets. The platform has successfully transitioned from a local, single-pipeline mockup into a highly resilient, enterprise-ready **dual-architecture platform** ready for real-world deployments.
+
+### Implementation Status
 
 ```mermaid
-pie title Implementation Status
-    "Implemented" : 12
-    "Partial / Mock" : 7
-    "Planned" : 6
+pie title Implementation Accomplishments
+    "Fully Implemented" : 20
+    "Active & Integrated" : 3
+    "Planned / Under Review" : 2
 ```
 
-| Area | Status | Details |
-|------|--------|---------|
-| Backend REST API | <span class="status-implemented">Implemented</span> | 19 endpoints across auth, users, docs, paths |
-| JWT Authentication | <span class="status-implemented">Implemented</span> | Access + refresh tokens, role-based access |
-| OCR Pipeline | <span class="status-implemented">Implemented</span> | PaddleOCR + EasyOCR with smart Arabic detection |
-| RabbitMQ Integration | <span class="status-implemented">Implemented</span> | Async document processing queue |
-| Azure Blob Storage | <span class="status-implemented">Implemented</span> | File upload and storage |
-| Azure SQL Server | <span class="status-implemented">Implemented</span> | 10-table schema, async queries |
-| Docker Compose | <span class="status-implemented">Implemented</span> | 3-service orchestration |
-| Frontend Auth Flow | <span class="status-implemented">Implemented</span> | Login, register, token refresh |
-| Frontend Profile | <span class="status-implemented">Implemented</span> | View and edit profile via API |
-| Frontend i18n | <span class="status-implemented">Implemented</span> | Full EN/AR with RTL, ~770 translation keys |
-| Frontend Dark Mode | <span class="status-implemented">Implemented</span> | CSS custom properties + class toggle |
-| Frontend Landing Pages | <span class="status-implemented">Implemented</span> | Index, About, Pricing, Contact |
-| Dashboard UI | <span class="status-planned">Mock Data</span> | Stats and activity — no backend integration |
-| Document History UI | <span class="status-planned">Mock Data</span> | List view — backend endpoints exist but not connected |
-| User Management UI | <span class="status-planned">Mock Data</span> | Full CRUD UI — backend endpoints exist but not connected |
-| Settings UI | <span class="status-planned">Mock Data</span> | Toggle controls — no backend endpoint |
-| Billing UI | <span class="status-planned">Mock Data</span> | Plan comparison — no backend endpoint |
-| Studio UI | <span class="status-planned">Mock Data</span> | AI content generation — no backend endpoint |
-| Support / FAQ UI | <span class="status-planned">Mock Data</span> | Static content, no dynamic data |
-| Document Upload UI | <span class="status-not-started">Not Started</span> | Backend endpoint exists (`POST /docs/upload`) |
-| Document Search UI | <span class="status-not-started">Not Started</span> | No backend endpoint or UI |
-| MongoDB OCR Storage | <span class="status-not-started">Not Started</span> | Currently uses local files |
-| Azure Service Bus | <span class="status-not-started">Not Started</span> | Stub class exists in backend |
-| Audit Logging | <span class="status-not-started">Not Started</span> | `Logs` table exists but not populated |
-| Individual Permissions | <span class="status-not-started">Not Started</span> | `Individual_Permissions` table exists but not used |
+| Area / Feature | Status | Details |
+|:---|:---:|:---|
+| **Backend REST API** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | 25+ async FastAPI endpoints across auth, users, docs, paths, and RAG operations. |
+| **JWT Access Lifecycles** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Short-lived access tokens, long-lived refresh tokens, and proactive client-side rotation. |
+| **Bilingual Localized UI** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Full English & Arabic RTL screens supporting over 770 translation keys dynamically. |
+| **Self-Hosted Local OCR** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Dual PaddleOCR + EasyOCR smart language router running entirely on offline hardware. |
+| **Premium Cloud OCR** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Azure Document Intelligence `prebuilt-layout` model preserving markdown layouts and tables. |
+| **NoSQL Layout Store** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Fully integrated Azure Cosmos DB (MongoDB API) storing structural parsed pages. |
+| **SQL Server Relational Core** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Relational core managing schema, transaction histories, path nodes, and logs. |
+| **Vector DB (Pinecone)** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Vector embedding persistence enabling narrow metadata filtering and search. |
+| **Cohere Rerank & LLM RAG** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Two-stage search (Azure OpenAI Similarity + Cohere Rerank) with sourced answers. |
+| **AI Classification** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Automated categorization, confidence scores, and logic reasoning logs via GPT-4.1. |
+| **Auto-Organization** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Dynamic categorization-based folder organization inside Azure Blob Storage containers. |
+| **Azure Service Bus** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Production-ready `AzureServiceBusBroker` replacing local dev RabbitMQ. |
+| **Audit Logging** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Core `Logs` tables actively tracking authentication, admin actions, and uploads. |
+| **SQL Server Metrics Sync** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Ingestion statistics (word count, page logs, and USD costs) synced to `Ocr_Results`. |
+| **Dual Docker Topologies** | <span style="color:#10b981; font-weight:bold;">Implemented</span> | Containerized compose layers for Local dev (`local`) and Production cloud (`prod`). |
 
 ---
 
-## Source Code TODOs
+## Key Accomplishments Breakdown
 
-These TODOs are extracted directly from the codebase:
+### 1. Unified RAG and Semantic Ingestion
+We successfully implemented a premium Retrieval-Augmented Generation (RAG) and Semantic Search ecosystem:
+- **Embedding Generation**: Core backend uses Azure OpenAI to convert parsed markdown chunks into high-density 1536-dimension vector embeddings.
+- **Precision Search**: Standard queries run through a broad recall phase, followed by a **Cohere Rerank v4.0 Fast** cross-attention pass to elevate top-relevance chunks.
+- **Sourced Answers**: The final context is compiled for `gpt-4.1-mini` to answer questions bilingual (Arabic/English) based **only** on the user's uploaded documents with precise page citations.
 
-### OCR Worker (`ocr/app/services/worker.py`)
+### 2. Dual Message Broker Architecture
+The application handles message brokerage seamlessly across both local development and cloud production configurations:
+- **Dev Mode**: Uses AMQP to queue tasks asynchronously inside a local containerized **RabbitMQ** instance.
+- **Prod Mode**: Automatically activates the `AzureServiceBusBroker` SDK client to route document tasks directly through managed **Azure Service Bus** queues, eliminating infrastructure operations and guaranteeing highly durable scaling.
 
-| Line | TODO | Priority |
-|------|------|----------|
-| 263 | Move OCR output to MongoDB | High |
-| 270 | Move OCR output to MongoDB | High |
-| 282 | Remove processed files from local storage | Medium |
+### 3. Cosmos DB NoSQL Persistence
+The planned migration from local flat-file worker disks is fully completed:
+- Extracted JSON schemas, text chunks, and OCR pipeline performance markers are written directly to **Azure Cosmos DB** (MongoDB API).
+- This keeps our primary SQL database extremely lean, saving parsed document blobs inside a distributed, horizontally-scalable NoSQL cluster indexed directly against SQL records via the `mongo_doc_id` field.
 
-**Context:** The OCR worker currently saves processed output (OCR text, metadata, confidence scores) to local files in the `/ocr/documents` directory. The plan is to migrate this to MongoDB for centralized, queryable storage.
-
-### Backend Server
-
-| Area | TODO | Priority |
-|------|------|----------|
-| `AzureServiceBusBroker` | Implement the Azure Service Bus broker as a production alternative to RabbitMQ | Medium |
-| `Logs` table | Populate with authentication events, admin actions, API access logs | Medium |
-| `Individual_Permissions` table | Implement per-document permission sharing between users | Low |
-| `Role_Actions` table | Implement action-level permissions beyond simple role_id checks | Low |
-
----
-
-## Planned Features
-
-### High Priority
-
-#### 1. MongoDB Migration for OCR Output
-
-**Current state:** OCR results are saved as local files (3 files per document: text, metadata JSON, confidence data). See the [Processing Pipelines](../guides/ocr-pipelines.md#output-format) page for details on the current output format.
-
-**Target state:** Store all OCR output in MongoDB collections for:
-
-- Full-text search across processed documents
-- Structured metadata queries
-- Centralized storage accessible by all services
-- Elimination of local file management
-
-```mermaid
-flowchart LR
-    subgraph Current
-        OCR1[OCR Worker] --> FS[Local Files<br/>/ocr/documents/]
-    end
-
-    subgraph Planned
-        OCR2[OCR Worker] --> MDB[MongoDB<br/>OCR results collection]
-        SRV[Backend Server] --> MDB
-        FE[Frontend] -->|via API| SRV
-    end
-```
-
-#### 2. Frontend-Backend Integration
-
-Connect mock data pages to existing backend endpoints. For a list of which frontend pages currently use mock data, see the [Components & Flows](../guides/frontend-components.md#pages-with-mockhardcoded-data) page.
-
-| Page | Backend Endpoints to Connect |
-|------|------------------------------|
-| History | `GET /api/v1/docs/me`, `GET /api/v1/docs/{id}/status`, `DELETE /api/v1/docs/{id}` |
-| Users (admin) | `GET /api/v1/users/all`, `GET /api/v1/users/pending`, `PUT /api/v1/users/{id}`, `DELETE /api/v1/users/{id}`, `POST /api/v1/users/{id}/activate` |
-| Dashboard | Requires new stats/summary endpoint |
-
-#### 3. Document Upload UI
-
-Build a document upload interface connecting to `POST /api/v1/docs/upload`:
-
-- File selection with drag-and-drop
-- Virtual path (folder) selection
-- Upload progress indicator
-- Automatic status polling after upload
-
-### Medium Priority
-
-#### 4. TanStack React Query Migration
-
-**Current state:** API calls use raw `apiFetch()` in `useEffect` hooks with manual loading/error state management. See the [Frontend API Integration](../guides/frontend-api.md#tanstack-react-query) page for the current state of the configured-but-unused QueryClient.
-
-**Target state:** Migrate to React Query for:
-
-- Automatic caching and deduplication
-- Background refetching
-- Optimistic updates
-- Declarative loading/error states
-- `QueryClient` is already configured but unused
-
-#### 5. Azure Service Bus
-
-**Current state:** RabbitMQ is used for development. The backend has an abstract `BaseBroker` class and a stub `AzureServiceBusBroker`. See the [Deployment](../setup/deployment.md) page for the current Docker Compose setup.
-
-**Target state:** Implement `AzureServiceBusBroker` for production use, providing:
-
-- Managed service (no infrastructure to maintain)
-- Built-in dead letter queues
-- Topic-based routing
-- Integration with Azure monitoring
-
-#### 6. Token Refresh Hardening
-
-**Current state:** Refresh tokens are not rotated -- the same refresh token is reused for 7 days. See the [Security & Auth](../concepts/security.md#jwt-token-security) page for current JWT implementation details.
-
-**Improvements needed:**
-
-- Refresh token rotation (new refresh token on each use)
-- Server-side refresh token storage for revocation
-- Logout endpoint that invalidates refresh tokens
-
-#### 7. Rate Limiting
-
-Add rate limiting on sensitive endpoints:
-
-| Endpoint | Recommended Limit |
-|----------|------------------|
-| `POST /auth/login` | 5 attempts per minute per IP |
-| `POST /auth/register` | 3 attempts per minute per IP |
-| `POST /auth/refresh` | 10 attempts per minute per user |
-
-### Low Priority
-
-#### 8. Password Reset Flow
-
-Implement email-based password reset:
-
-1. User requests reset via email
-2. Server sends time-limited reset token
-3. User clicks link with token
-4. User sets new password
-
-Requires email service integration (e.g., Azure Communication Services).
-
-#### 9. Individual Permissions
-
-The `Individual_Permissions` [database table](../concepts/database.md#individual_permissions) exists but is not used. Implement per-document sharing:
-
-- Grant read/write access to specific users on specific documents
-- Permission inheritance through virtual path hierarchy
-- Permission management UI
-
-#### 10. Audit Logging
-
-The `Logs` [database table](../concepts/database.md#logs) exists but is not populated. Implement:
-
-- Authentication events (login, logout, failed attempts)
-- Admin actions (user activation, role changes, deletions)
-- Document operations (upload, delete, status changes)
-- API access logging for compliance
-
-#### 11. Frontend Docker Containerization
-
-The frontend currently runs outside Docker Compose. Add a containerized build:
-
-```yaml
-# Planned addition to docker-compose.yml
-frontend:
-  build:
-    context: ./frontend
-    dockerfile: Dockerfile
-  ports:
-    - "8080:80"
-  depends_on:
-    - server
-```
+### 4. Relational Database Sync & Audit Trails
+The platform’s transaction histories and analytical audit trails are now fully functional:
+- **Ocr_Results Table**: Synced automatically after worker ingestion to track layout confidence, categorized folders, language labels, and exact Azure cognitive/OpenAI costs in USD.
+- **Logs Table**: Populates instantly on auth actions (user registrations, logins), administrative modifications (role changes, user activations), and document cycles (uploads, RAG ingestions, vector removals).
 
 ---
 
-## Known Limitations
+## Planned Future Research
 
-### Backend
+While all core targets for the graduation project defense are fully satisfied, the team holds these avenues for post-graduation research:
 
-| Limitation | Impact | Workaround |
-|-----------|--------|------------|
-| No database migrations (Alembic) | Schema changes require manual SQL | Schema was reverse-engineered via sqlacodegen |
-| Single JWT signing key | Key rotation invalidates all sessions | Restart server with new key |
-| No CORS configuration in production | Frontend must be served from same domain or CORS must be configured | Set `CORS_ORIGINS` env var |
-| Orphaned blobs on failed uploads | Blob uploaded but DB commit fails | Manual cleanup required |
-
-### OCR Worker
-
-| Limitation | Impact | Workaround |
-|-----------|--------|------------|
-| Local file storage for OCR output | Not accessible from other services | Planned MongoDB migration |
-| Single worker instance | Limited throughput | Scale via Docker replicas |
-| No GPU support in Docker | Slower OCR processing | Use host GPU with `--gpus` flag |
-| Processed files not cleaned up | Disk space grows over time | Manual cleanup or TODO implementation |
-
-### Frontend
-
-| Limitation | Impact | Workaround |
-|-----------|--------|------------|
-| Most pages use mock data | Not functional with real data | Backend integration needed |
-| No document upload UI | Core feature missing | Use API directly via curl/Postman |
-| TanStack Query configured but unused | Manual state management in pages | Migrate to React Query |
-| TypeScript strict mode off | Reduced type safety | Enable incrementally |
-| No tests | No regression protection | Add testing framework |
-| `sessionStorage` tokens | Not shared across tabs | Each tab requires separate login |
+1. **Individual Permissions Enforcement**
+   - The `Individual_Permissions` table is successfully structured. Future updates will wire these SQL rows directly into the FastAPI authorization route chain to support granular document sharing and path-inheritance controls.
+2. **Refresh Token Rotation (RTR)**
+   - Future security updates will implement single-use refresh token rotation and server-side revocation lists to harden the authentication gateway.
+3. **Advanced Rate Limiting**
+   - Add token-bucket rate limiting on the `/auth/login` and `/auth/register` endpoints to protect database clusters against brute-force attacks.

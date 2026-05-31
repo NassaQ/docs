@@ -1,9 +1,9 @@
 # Database Schema
 
-NassaQ uses **Azure SQL Server** as its primary relational database. The schema is designed around a role-based access control system with document management and audit logging capabilities.
+NassaQ uses **Azure SQL Server** as its primary relational database. The schema is designed around a role-based access control (RBAC) system, document status tracking, audit logging, RAG ingest metrics, and detailed OCR results auditing.
 
 !!! note "Schema Origin"
-    The SQLAlchemy ORM models were reverse-engineered from the existing database using `sqlacodegen`. There are no Alembic migrations -- the schema is managed externally via Azure SQL management tools.
+    The SQLAlchemy ORM models were reverse-engineered from the active database using `sqlacodegen`. Schema structures are managed centrally via Azure SQL and ORM mapping dependencies.
 
 ---
 
@@ -20,6 +20,8 @@ erDiagram
     Users ||--o{ Logs : "generates"
     Virtual_Paths ||--o{ Documents : "contains"
     Documents ||--o{ Processing_Status : "tracked_by"
+    Documents ||--o{ Ocr_Results : "has"
+    Documents ||--o{ Rag_Ingest : "tracks_vectorization"
 
     Roles {
         int role_id PK
@@ -65,6 +67,34 @@ erDiagram
         int uploaded_by_user_id FK
         string mongo_doc_id
         datetime uploaded_at
+        datetime updated_at
+        bigint file_size
+        string content_type
+        string file_type
+    }
+
+    Ocr_Results {
+        bigint result_id PK
+        bigint doc_id FK
+        int page_count
+        int word_count
+        float avg_confidence
+        string primary_language
+        string category
+        float classification_confidence
+        float cost_usd_ocr
+        float cost_usd_classification
+        datetime processed_at
+    }
+
+    Rag_Ingest {
+        bigint ingest_id PK
+        bigint doc_id FK
+        string status
+        int chunks_count
+        int total_tokens
+        datetime ingested_at
+        unicode error_message
     }
 
     Processing_Status {
@@ -114,20 +144,13 @@ The central user table. New users are created as **inactive** (`is_active = fals
 | `password_hash` | `VARCHAR(255)` | Not Null | bcrypt-hashed password |
 | `created_at` | `DATETIME` | Not Null, Default: `getdate()` | Account creation timestamp |
 | `is_active` | `BIT` | Not Null, Default: `0` | Whether the user can log in |
-| `role_id` | `INT` | FK -> Roles, Default: `1` | Assigned role (nullable until activated) |
-
-**Relationships:**
-
-- Belongs to one `Role` (via `role_id`)
-- Has many `Documents` (uploaded files)
-- Has many `Individual_Permissions` (fine-grained access)
-- Has many `Logs` (audit trail)
+| `role_id` | `INT` | FK -> Roles, Default: `1` | Assigned role |
 
 ---
 
 ### Roles
 
-Defines the roles available in the system. Role `99` is reserved for **administrators** and is checked at the application level in the FastAPI dependency chain. See the [Security & Auth](../concepts/security.md#role-based-access-control-rbac) page for details on how roles are enforced.
+Defines the roles available in the system. Role `99` is reserved for **administrators** and is checked in the FastAPI dependency chain.
 
 | Column | Type | Constraints | Description |
 |:---|:---|:---|:---|
@@ -135,38 +158,28 @@ Defines the roles available in the system. Role `99` is reserved for **administr
 | `role_name` | `NVARCHAR(50)` | Unique, Not Null | Human-readable role name |
 | `description` | `NVARCHAR(255)` | Nullable | Role description |
 
-**Relationships:**
-
-- Has many `Users` assigned to this role
-- Has many `Role_Actions` defining what actions this role can perform
-
 ---
 
 ### Actions
 
-Represents individual actions that can be performed within the system (e.g., "read", "write", "delete"). Actions are scoped to an `entity_type` (e.g., "document", "user").
+Represents individual actions that can be performed within the system (e.g., "read", "write", "delete"), scoped to an `entity_type`.
 
 | Column | Type | Constraints | Description |
 |:---|:---|:---|:---|
 | `action_id` | `INT` | PK, Identity | Auto-incrementing primary key |
-| `action_name` | `VARCHAR(50)` | Unique, Not Null | Action identifier (e.g., "read", "delete") |
-| `entity_type` | `VARCHAR(20)` | Not Null | What type of entity this action applies to |
-
-**Relationships:**
-
-- Included in many `Role_Actions` (role-level permissions)
-- Referenced by many `Individual_Permissions` (user-level overrides)
+| `action_name` | `VARCHAR(50)` | Unique, Not Null | Action identifier |
+| `entity_type` | `VARCHAR(20)` | Not Null | Scoped entity |
 
 ---
 
 ### Role_Actions
 
-A **junction table** that maps roles to actions, defining what each role is permitted to do.
+Junction table mapping roles to actions to configure role-level permissions.
 
 | Column | Type | Constraints | Description |
 |:---|:---|:---|:---|
-| `role_action_id` | `BIGINT` | PK, Identity | Auto-incrementing primary key |
-| `role_id` | `INT` | FK -> Roles, Not Null | The role being granted an action |
+| `role_action_id` | `BIGINT` | PK, Identity | Primary key |
+| `role_id` | `INT` | FK -> Roles, Not Null | The role being granted access |
 | `action_id` | `INT` | FK -> Actions, Not Null | The action being granted |
 
 **Unique constraint:** `(role_id, action_id)` -- prevents duplicate grants.
@@ -175,170 +188,157 @@ A **junction table** that maps roles to actions, defining what each role is perm
 
 ### Virtual_Paths
 
-Represents a **virtual folder hierarchy** for organizing documents. Paths are stored as full path strings (e.g., `/department/finance/2024`) with a `depth` field indicating the nesting level.
+Represents the **virtual folder hierarchy** for organizing files. Paths are stored as full path strings (e.g., `/dept/finance`) with a depth field (root level starts at `0`).
 
 | Column | Type | Constraints | Description |
 |:---|:---|:---|:---|
 | `path_id` | `INT` | PK, Identity | Auto-incrementing primary key |
-| `full_path` | `NVARCHAR(500)` | Unique, Not Null | Full path string (e.g., `/dept/finance`) |
+| `full_path` | `NVARCHAR(500)` | Unique, Not Null | Unique full folder path string |
 | `created_at` | `DATETIME` | Not Null, Default: `getdate()` | Path creation timestamp |
-| `description` | `NVARCHAR(MAX)` | Nullable | Path description |
-| `depth` | `INT` | Not Null | Nesting depth (0 for root-level) |
-
-**Relationships:**
-
-- Contains many `Documents` stored at this path
+| `description` | `NVARCHAR(MAX)` | Nullable | Description of folder |
+| `depth` | `INT` | Not Null | Folder nesting depth |
 
 ---
 
 ### Documents
 
-Stores metadata for every uploaded document. The actual file content lives in Azure Blob Storage; this table holds the reference.
+Stores relational metadata for every uploaded file. The raw file body is in Azure Blob Storage; this table tracks the pointer.
 
 | Column | Type | Constraints | Description |
 |:---|:---|:---|:---|
 | `doc_id` | `BIGINT` | PK, Identity | Auto-incrementing primary key |
 | `filename` | `NVARCHAR(255)` | Not Null | Original filename |
 | `path_id` | `INT` | FK -> Virtual_Paths, Not Null | Virtual folder location |
-| `uploaded_by_user_id` | `INT` | FK -> Users, Not Null | User who uploaded the file |
-| `mongo_doc_id` | `VARCHAR(36)` | Not Null | Reference to MongoDB document (currently a placeholder UUID) |
-| `uploaded_at` | `DATETIME` | Not Null, Default: `getdate()` | Upload timestamp |
+| `uploaded_by_user_id` | `INT` | FK -> Users, Not Null | User ID of uploader |
+| `mongo_doc_id` | `VARCHAR(36)` | Not Null | Cosmos DB document reference ID |
+| `uploaded_at` | `DATETIME` | Not Null, Default: `getdate()` | Upload date |
+| `updated_at` | `DATETIME` | Nullable | Update date |
+| `file_size` | `BIGINT` | Nullable | Size in bytes |
+| `content_type` | `VARCHAR(100)` | Nullable | MIME Type |
+| `file_type` | `VARCHAR(10)` | Nullable | File extension (e.g., `pdf`, `png`) |
 
-**Unique constraint:** `(filename, path_id)` -- prevents duplicate filenames within the same folder.
+**Unique constraint:** `(filename, path_id)` -- prevents duplicate filenames within the same virtual folder.
 
-**Relationships:**
+---
 
-- Belongs to one `Virtual_Path` (folder)
-- Belongs to one `User` (uploader)
-- Has many `Processing_Status` records (tracks OCR progress)
+### Ocr_Results
+
+Stores structured, granular transaction statistics generated during the cloud OCR and classification process.
+
+| Column | Type | Constraints | Description |
+|:---|:---|:---|:---|
+| `result_id` | `BIGINT` | PK, Identity | Primary key |
+| `doc_id` | `BIGINT` | FK -> Documents, Not Null | Linked document ID |
+| `page_count` | `INT` | Not Null | Page count of document |
+| `word_count` | `INT` | Not Null | Word count |
+| `avg_confidence` | `FLOAT` | Not Null | Average layout extraction confidence |
+| `primary_language` | `VARCHAR(10)` | Not Null | Detected language code (e.g. `ar`, `en`) |
+| `category` | `VARCHAR(50)` | Nullable | Classified category |
+| `classification_confidence` | `FLOAT` | Nullable | Classification confidence |
+| `cost_usd_ocr` | `FLOAT` | Not Null | Transaction cost of Document Intelligence |
+| `cost_usd_classification` | `FLOAT` | Nullable | Transaction cost of Azure OpenAI classification |
+| `processed_at` | `DATETIME` | Not Null, Default: `getutcdate()` | Timestamp of metric insertion |
+
+---
+
+### Rag_Ingest
+
+Tracks RAG vectorization jobs, chunk allocations, and token consumption statistics.
+
+| Column | Type | Constraints | Description |
+|:---|:---|:---|:---|
+| `ingest_id` | `BIGINT` | PK, Identity | Primary key |
+| `doc_id` | `BIGINT` | FK -> Documents, Not Null | Associated document ID |
+| `status` | `VARCHAR(20)` | Not Null | Vector status (e.g. `"Finished"`, `"Failed"`) |
+| `chunks_count` | `INT` | Not Null, Default: `0` | Number of text chunks created in Pinecone |
+| `total_tokens` | `INT` | Not Null, Default: `0` | Total tokens consumed by OpenAI embedding model |
+| `ingested_at` | `DATETIME` | Not Null, Default: `getdate()` | Timestamp of vectorization |
+| `error_message` | `NVARCHAR(MAX)` | Nullable | Error logs in case of vector failures |
 
 ---
 
 ### Processing_Status
 
-Tracks the lifecycle of a document through the OCR processing pipeline. Each record represents a processing stage for a specific document. See the [Processing Pipelines](../guides/ocr-pipelines.md) page for details on how the OCR worker updates these records.
+Tracks the multi-stage lifecycle of documents through background worker queues.
 
 | Column | Type | Constraints | Description |
 |:---|:---|:---|:---|
-| `status_id` | `BIGINT` | PK, Identity | Auto-incrementing primary key |
-| `doc_id` | `BIGINT` | FK -> Documents, Not Null | The document being processed |
-| `stage_name` | `VARCHAR(50)` | Not Null | Processing stage (currently always `"OCR"`) |
-| `status` | `VARCHAR(20)` | Not Null | Current status of this stage |
-| `start_time` | `DATETIME` | Not Null, Default: `getdate()` | When processing began |
-| `end_time` | `DATETIME` | Nullable | When processing completed |
-| `error_message` | `NVARCHAR(MAX)` | Nullable | Error details if processing failed |
-
-**Status lifecycle:**
-
-```mermaid
-stateDiagram-v2
-    [*] --> Queued: Document uploaded
-    Queued --> Processing: Worker picks up message
-    Processing --> Finished: OCR completed successfully
-    Processing --> Failed: Error during processing
-    Failed --> Queued: Message requeued (automatic)
-```
+| `status_id` | `BIGINT` | PK, Identity | Primary key |
+| `doc_id` | `BIGINT` | FK -> Documents, Not Null | Target document ID |
+| `stage_name` | `VARCHAR(50)` | Not Null | Stage (e.g. `"OCR"`, `"Classification"`, `"Vectorization"`) |
+| `status` | `VARCHAR(20)` | Not Null | Stage status (`"Queued"`, `"Processing"`, `"Finished"`, `"Failed"`) |
+| `start_time` | `DATETIME` | Not Null, Default: `getdate()` | Start timestamp |
+| `end_time` | `DATETIME` | Nullable | End timestamp |
+| `error_message` | `NVARCHAR(MAX)` | Nullable | Error logs in case of stage failures |
 
 ---
 
 ### Individual_Permissions
 
-Provides **fine-grained, user-level permission overrides** that can grant or deny access to specific entities independently of role-based permissions.
+Provides fine-grained, user-level permission overrides that bypass standard role roles (not yet active in API).
 
 | Column | Type | Constraints | Description |
 |:---|:---|:---|:---|
-| `permission_id` | `BIGINT` | PK, Identity | Auto-incrementing primary key |
-| `user_id` | `INT` | FK -> Users, Not Null | The user this permission applies to |
-| `action_id` | `INT` | FK -> Actions, Not Null | The action being permitted/denied |
-| `entity_id` | `BIGINT` | Not Null | ID of the specific entity (e.g., a document ID) |
-| `entity_type` | `VARCHAR(20)` | Not Null | Type of entity (e.g., "document", "path") |
-| `is_allowed` | `BIT` | Not Null | Whether access is granted (`1`) or denied (`0`) |
-| `is_inherited` | `BIT` | Not Null, Default: `0` | Whether this permission was inherited from a parent |
-
-!!! warning "Not Yet Active"
-    The `Individual_Permissions` table exists in the database schema but is **not yet wired into the API authorization logic**. Currently, all access control is role-based through the `AdminUser` dependency (role_id = 99).
+| `permission_id` | `BIGINT` | PK, Identity | Primary key |
+| `user_id` | `INT` | FK -> Users, Not Null | Target user |
+| `action_id` | `INT` | FK -> Actions, Not Null | Target action |
+| `entity_id` | `BIGINT` | Not Null | Specific document/folder ID |
+| `entity_type` | `VARCHAR(20)` | Not Null | Scoped entity class |
+| `is_allowed` | `BIT` | Not Null | Grants (`1`) or denies (`0`) access |
+| `is_inherited` | `BIT` | Not Null, Default: `0` | Is inherited from parent path |
 
 ---
 
 ### Logs
 
-An **audit log** table that records significant actions performed within the system.
+Audit trail table tracking authentication and administrative transaction histories.
 
 | Column | Type | Constraints | Description |
 |:---|:---|:---|:---|
-| `log_id` | `BIGINT` | PK, Identity | Auto-incrementing primary key |
-| `log_timestamp` | `DATETIME` | Not Null, Default: `getdate()` | When the action occurred |
-| `action_type` | `VARCHAR(50)` | Not Null | Type of action (e.g., "upload", "delete", "login") |
-| `user_id` | `INT` | FK -> Users, Nullable | The user who performed the action |
-| `entity_id` | `BIGINT` | Nullable | ID of the affected entity |
-| `details` | `NVARCHAR(MAX)` | Nullable | Free-text details about the action |
-
----
-
-### sysdiagrams
-
-A **system table** automatically created by SQL Server Management Studio (SSMS) for storing database diagram definitions. This table is not used by the application.
-
-| Column | Type | Constraints | Description |
-|:---|:---|:---|:---|
-| `diagram_id` | `INT` | PK, Identity | Diagram identifier |
-| `name` | `SYSNAME` | Not Null | Diagram name |
-| `principal_id` | `INT` | Not Null | Database principal who owns the diagram |
-| `version` | `INT` | Nullable | Diagram format version |
-| `definition` | `VARBINARY(MAX)` | Nullable | Serialized diagram data |
+| `log_id` | `BIGINT` | PK, Identity | Primary key |
+| `log_timestamp` | `DATETIME` | Not Null, Default: `getdate()` | Transaction timestamp |
+| `action_type` | `VARCHAR(50)` | Not Null | Event type (e.g. `"document_upload"`, `"rag_ingest"`) |
+| `user_id` | `INT` | FK -> Users, Nullable | Responsible user ID |
+| `entity_id` | `BIGINT` | Nullable | Relational subject entity |
+| `details` | `NVARCHAR(MAX)` | Nullable | Transaction summary log text |
 
 ---
 
 ## Access Patterns by Service
 
-The two backend services access different subsets of the database. For details on how the backend server exposes these tables via its REST API, see the [API Reference](../reference/api-endpoints.md).
-
-| Table | Backend Server | OCR Worker |
-|:---|:---:|:---:|
-| `Users` | Read / Write | -- |
-| `Roles` | Read | -- |
-| `Role_Actions` | Read | -- |
-| `Actions` | Read | -- |
-| `Virtual_Paths` | Read / Write | -- |
-| `Documents` | Read / Write | Write (`mongo_doc_id`) |
-| `Processing_Status` | Read / Create | Write (status updates) |
-| `Individual_Permissions` | Read | -- |
-| `Logs` | Write | -- |
-| `sysdiagrams` | -- | -- |
+| Table | Backend Server | Local OCR Worker | AI Foundry Worker |
+|:---|:---:|:---:|:---:|
+| `Users` | Read / Write | -- | -- |
+| `Roles` | Read | -- | -- |
+| `Virtual_Paths` | Read / Write | -- | -- |
+| `Documents` | Read / Write | Write (`mongo_doc_id`) | Write (`mongo_doc_id`) |
+| `Ocr_Results` | Read | -- | Write (statistics & costs) |
+| `Rag_Ingest` | Read / Write | -- | -- |
+| `Processing_Status` | Read / Create | Write (status updates) | Write (status updates) |
+| `Logs` | Read / Write | -- | -- |
 
 ---
 
 ## Connection Configuration
 
-Both services connect using the same driver stack:
+Services connect to Azure SQL using SQL Alchemy 2.0 connection pools:
 
 ```
 SQLAlchemy 2.0 (async) -> aioodbc -> pyodbc -> ODBC Driver 18 for SQL Server -> Azure SQL
 ```
 
-Connection settings are managed via Pydantic Settings and include resilience features:
-
-| Setting | Default | Purpose |
-|:---|:---|:---|
-| `SQL_CONNECT_TIMEOUT` | `60` seconds | Connection timeout |
-| `SQL_MAX_RETRIES` | `3` | Maximum retry attempts on `OperationalError` |
-| `SQL_RETRY_DELAY_BASE` | `2` seconds | Base delay for exponential backoff |
-| `pool_pre_ping` | `True` | Validates connections before use |
-| `pool_recycle` | `1800` seconds (30 min) | Recycles idle connections |
+Pool features are optimized for high-volume transactions and Azure SQL Database sleep-state cold starts:
+- `pool_pre_ping=True`: Verifies connection health before running queries.
+- `pool_recycle=1800`: Automatically recycles connection streams every 30 minutes.
+- `SQL_MAX_RETRIES=3` with exponential backoff (`2s`, `4s`, `8s` delays) to handle sleeping DB cold starts.
 
 ---
 
-## Planned: MongoDB Integration
+## Cosmos DB (MongoDB API) Integration
 
-Azure Cosmos DB with the MongoDB API is planned for storing processed document content (extracted text, embeddings, and structured metadata). See the [Roadmap](../project/roadmap.md#mongodb-migration-for-ocr-output) for the full migration plan. The server's configuration already includes MongoDB connection settings:
+**Status: Fully Integrated (Premium Path)**
 
-| Setting | Description |
-|:---|:---|
-| `MONGO_USER` | MongoDB username |
-| `MONGO_PASS` | MongoDB password (URL-encoded) |
-| `MONGO_HOST` | Cosmos DB cluster hostname |
-| `MONGO_PORT` | Connection port (default: `10260`) |
-| `MONGO_DB_NAME` | Database name (default: `sdmsdb`) |
-| `MONGO_TLS_INSECURE` | Allow insecure TLS (default: `true`) |
-
-The OCR worker currently saves extracted text and metadata as local files. The planned migration will write these directly to MongoDB, linking them back to the SQL Server records via `mongo_doc_id`.
+For the cloud-native pipeline, **Azure Cosmos DB** (MongoDB API) stores the parsed document text and JSON layouts. 
+- Large files (extracted layout blocks, deep paragraph grids, complete page indexes) are offloaded to Cosmos DB collections.
+- The `Documents.mongo_doc_id` field contains the primary key `_id` of the Cosmos DB NoSQL document.
+- The backend server pulls parsed plain text and tables from Cosmos DB during the **RAG Ingest** phase to perform semantic chunking and embedding, preventing large-string bloat inside the Azure SQL database.

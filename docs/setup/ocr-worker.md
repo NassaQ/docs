@@ -1,6 +1,8 @@
-# OCR API - Setup
+# OCR Worker (Self-Hosted) - Setup
 
-This guide covers environment setup, dependencies, Docker configuration, and running the OCR processing service. For details on how the OCR pipeline processes documents, see the [Processing Pipelines](../guides/ocr-pipelines.md) page.
+This guide covers environment setup, dependencies, Docker configuration, and running the **Self-Hosted / Local OCR Worker** service. This worker is designed for companies that prioritize full data residency, offline operations, or local execution on their own infrastructure, utilizing open-source ML models (PaddleOCR and EasyOCR) running on CPUs or local GPUs.
+
+If you are instead setting up the premium cloud-native pipeline using Azure managed AI services, see the [AI Foundry Worker Setup](ai-foundry.md) page. For details on the routing pipelines, see the [Processing Pipelines](../guides/ocr-pipelines.md) page.
 
 ## Prerequisites
 

@@ -20,48 +20,67 @@ The platform transforms unstructured documents into searchable, categorized, and
 
 ### Core Capabilities
 
-- **Dual-Engine OCR** -- A smart routing system that selects between PaddleOCR (optimized for speed and Latin scripts) and EasyOCR (optimized for Arabic cursive text) based on detected language
-- **Multi-Format Processing** -- Handles PDFs (both digital and scanned), images (JPEG, PNG), and plain text files
-- **Asynchronous Processing** -- Documents are queued via RabbitMQ and processed in the background, so users never wait
-- **Cloud-Native Storage** -- All files are stored in Azure Blob Storage with metadata tracked in Azure SQL Server
-- **Bilingual Interface** -- A fully localized web application supporting English and Arabic (RTL) out of the box
-- **Role-Based Access Control** -- Users, roles, and permissions are managed through a structured authorization system
+- **Processing Flexibility (Self-Hosted vs. Cloud)** -- Choice between:
+    - **Self-Hosted / Local Mode**: Uses PaddleOCR and EasyOCR running locally for 100% data residency and offline execution.
+    - **Premium Cloud Mode**: Uses Azure AI Document Intelligence and Azure OpenAI for premium accuracy, layout reconstruction, and speed.
+- **AI-Powered Organization & Classification** -- Automates categorization of documents using GPT models and structures file storage inside Azure Blob Storage into category-based folders.
+- **RAG & Semantic Search** -- An integrated retrieval-augmented generation engine utilizing Azure OpenAI embeddings, Pinecone vector database, and Cohere Rerank to query and retrieve answers from documents.
+- **Dual Message Brokers** -- Durable asynchronous queuing using local RabbitMQ for development and Azure Service Bus for enterprise production environments.
+- **Bilingual Support** -- Fully localized interface supporting English and Arabic with full RTL styling out of the box.
+- **Role-Based Access Control** -- Granular database-backed user management and authorization.
 
 ---
 
 ## Platform Architecture at a Glance
 
-NassaQ follows a **microservices architecture** with three independently deployable components:
+NassaQ features a **microservices-based architecture** that is highly decoupled. It supports two distinct deployment and processing pathways:
 
 ```mermaid
-graph LR
-    A["<b>User Interface</b><br/>React + TypeScript<br/>Port 8080"] -->|REST API| B["<b>Backend Server</b><br/>FastAPI + SQLAlchemy<br/>Port 8000"]
-    B -->|AMQP| C[("<b>RabbitMQ</b><br/>Message Broker<br/>Port 5672")]
-    C -->|Consume| D["<b>OCR Worker</b><br/>FastAPI + PaddleOCR<br/>Port 8001"]
-    B -->|Read/Write| E[("Azure SQL<br/>Server")]
-    B -->|Upload/Download| F[("Azure Blob<br/>Storage")]
-    D -->|Read/Write| E
-    D -->|Download| F
-    B -.->|Planned| G[("Azure Cosmos DB<br/>MongoDB")]
+graph TD
+    UI["<b>User Interface</b><br/>React + TypeScript<br/>Port 8080"] -->|REST API| SRV["<b>Backend Server</b><br/>FastAPI + SQLAlchemy<br/>Port 8000"]
+    
+    %% Shared Storage
+    SRV -->|Read/Write| SQL[("Azure SQL Server<br/><i>Relational Data & Metrics</i>")]
+    SRV -->|Upload/Download| BLOB[("Azure Blob Storage<br/><i>Original Documents & organized folders</i>")]
+    
+    %% Processing path selection
+    SRV -->|Queue jobs| MQ{{"Message Broker<br/><i>RabbitMQ (Dev) or Azure Service Bus (Prod)</i>"}}
+    
+    subgraph LocalPath ["Self-Hosted / Local Path (ocr_queue)"]
+        MQ -->|Consume| OCR["<b>Local OCR Worker</b><br/>FastAPI + PaddleOCR + EasyOCR<br/>Port 8001"]
+        OCR -->|Download| BLOB
+        OCR -->|Update Status| SQL
+    end
+    
+    subgraph CloudPath ["Premium Cloud Path (ai_foundry_queue)"]
+        MQ -->|Consume| AIF["<b>AI Foundry Worker</b><br/>FastAPI + Azure AI APIs<br/>Port 8001"]
+        AIF -->|Download| BLOB
+        AIF -->|Extract Layout| ADI["Azure Document Intelligence"]
+        AIF -->|Classify Doc| AOAI["Azure OpenAI (LLM)"]
+        AIF -->|Auto-organize folder| BLOB
+        AIF -->|Update Metrics| SQL
+        AIF -->|Store extracted JSON| COSMOS[("Azure Cosmos DB<br/><i>MongoDB API</i>")]
+    end
 ```
 
-| Component | Repository | Technology |
-|:---|:---|:---|
-| **User Interface** | [`NassaQ/User_Interface`](https://github.com/NassaQ/User_Interface) | React 18, TypeScript, Vite 5, Tailwind CSS, shadcn/ui |
-| **Backend Server** | [`NassaQ/server`](https://github.com/NassaQ/server) | Python 3.11, FastAPI, SQLAlchemy 2.0, Azure SDKs |
-| **OCR Worker** | [`NassaQ/ocr-api`](https://github.com/NassaQ/ocr-api) | Python 3.11, FastAPI, PaddleOCR, EasyOCR, PyMuPDF |
+| Component | Repository | Technology | Purpose |
+|:---|:---|:---|:---|
+| **User Interface** | [`NassaQ/User_Interface`](https://github.com/NassaQ/User_Interface) | React 18, TypeScript, Vite 5, Tailwind CSS, shadcn/ui | Main web portal for users and administrators |
+| **Backend Server** | [`NassaQ/server`](https://github.com/NassaQ/server) | Python 3.11, FastAPI, SQLAlchemy 2.0, Azure SDKs, Pinecone | Central REST API, authentication, RAG, and orchestrator |
+| **Local OCR Worker** | [`NassaQ/ocr-api`](https://github.com/NassaQ/ocr-api) | Python 3.11, FastAPI, PaddleOCR, EasyOCR, PyMuPDF | Offline self-hosted OCR processing queue consumer |
+| **AI Foundry Worker** | [`NassaQ/ai-foundry`](https://github.com/NassaQ/ai-foundry) | Python 3.11, FastAPI, Azure Document Intelligence, Azure OpenAI, Motor | Premium cloud-native OCR, classification, and organization |
 
 ---
 
 ## Quick Start
 
-Get the entire platform running locally with Docker Compose.
+Get the platform running locally in either **Local (Self-Hosted)** or **Production (Cloud)** topology.
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed
-- Azure credentials for SQL Server, Blob Storage, and (optionally) Cosmos DB
-- A copy of each repository cloned into a shared parent directory
+- [Docker](https://docs.google.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed.
+- Active Microsoft Azure account with SQL Server, Blob Storage, Cosmos DB, and Azure AI resources.
+- A copy of each repository cloned into a shared parent directory.
 
 ### 1. Clone the Repositories
 
@@ -70,37 +89,39 @@ mkdir nassaq && cd nassaq
 
 git clone git@github.com:NassaQ/server.git
 git clone git@github.com:NassaQ/ocr-api.git ocr
+git clone git@github.com:NassaQ/ai-foundry.git ai-foundry
 git clone git@github.com:NassaQ/User_Interface.git frontend
 ```
 
 ### 2. Configure Environment Variables
 
-Each backend service requires its own `.env` file. Copy the examples and fill in your Azure credentials:
+Each backend service requires its own `.env` file. Copy the examples and fill in your Azure and AI credentials:
 
 ```bash
 cp server/.env.example server/.env
 cp ocr/.env.example ocr/.env
+cp ai-foundry/.env.example ai-foundry/.env
 ```
-
-Each `.env.example` file documents every required and optional variable. See [Backend Server Setup](setup/backend.md#environment-variables) and [OCR API Setup](setup/ocr-worker.md#environment-variables) for descriptions of each variable.
 
 ### 3. Launch with Docker Compose
 
-```bash
-docker compose up --build
-```
+Select your execution mode:
 
-This starts three containers:
+==== "Local Development (Self-Hosted)"
+    To run the backend, local OCR worker, and local RabbitMQ:
+    ```bash
+    docker compose -f docker-compose.local.yml up --build
+    ```
 
-| Service | Container | URL |
-|:---|:---|:---|
-| **RabbitMQ** | `nassaq-rabbitmq` | [http://localhost:15672](http://localhost:15672) (Management UI) |
-| **Backend Server** | `nassaq-server` | [http://localhost:8000](http://localhost:8000) |
-| **OCR Worker** | `nassaq-ocr` | [http://localhost:8001](http://localhost:8001) |
+==== "Production/Cloud Mode (AI Foundry)"
+    To run the backend, premium AI Foundry worker, and broker:
+    ```bash
+    docker compose -f docker-compose.prod.yml up --build
+    ```
 
 ### 4. Start the Frontend
 
-The frontend runs separately (not yet containerized):
+Run the React application locally:
 
 ```bash
 cd frontend
@@ -110,14 +131,11 @@ npm run dev    # or: bun dev
 
 The UI will be available at [http://localhost:8080](http://localhost:8080).
 
-!!! tip "API Base URL"
-    The frontend reads `VITE_API_BASE_URL` from the environment. It defaults to `http://127.0.0.1:8000`, which matches the Docker Compose server port.
-
 ---
 
 ## How It Works
 
-The document processing flow follows these steps:
+The document ingestion and RAG process flow:
 
 ```mermaid
 sequenceDiagram
@@ -126,27 +144,36 @@ sequenceDiagram
     participant API as Backend Server
     participant Blob as Azure Blob Storage
     participant DB as Azure SQL Server
-    participant MQ as RabbitMQ
-    participant OCR as OCR Worker
+    participant MQ as Message Broker
+    participant Worker as AI Foundry Worker
+    participant Cosmos as Cosmos DB
 
     User->>UI: Upload document
     UI->>API: POST /api/v1/docs/upload
     API->>Blob: Store original file
-    API->>DB: Create Document record<br/>(status: Queued)
-    API->>MQ: Publish to ocr_queue
+    API->>DB: Create Document record (OCR: Queued, Vectorization: Queued)
+    API->>MQ: Publish to ai_foundry_queue
     API-->>UI: 200 OK (doc_id)
 
-    MQ->>OCR: Deliver message
-    OCR->>DB: Update status: Processing
-    OCR->>Blob: Download file
-    OCR->>OCR: Run smart OCR pipeline
-    OCR->>DB: Update status: Finished
-    OCR-->>MQ: Acknowledge message
+    MQ->>Worker: Deliver message
+    Worker->>DB: Update stage OCR status: Processing
+    Worker->>Blob: Download file
+    Worker->>Worker: Run Azure Document Intelligence OCR
+    Worker->>Worker: Classify via Azure OpenAI LLM
+    Worker->>Blob: Organize file into category folder
+    Worker->>Cosmos: Store full extracted text & layout JSON
+    Worker->>DB: Record Ocr_Results metrics (costs, languages, etc.)
+    Worker->>DB: Update stage OCR & Classification: Finished
+    Worker-->>MQ: Acknowledge message
 
-    User->>UI: Check status
-    UI->>API: GET /api/v1/docs/{id}/status
-    API->>DB: Query ProcessingStatus
-    API-->>UI: { status: "Finished" }
+    Note over User, UI: User now makes document searchable in vector store
+    User->>UI: Click "Ingest to RAG"
+    UI->>API: POST /api/v1/rag/ingest
+    API->>Cosmos: Read full extracted text
+    API->>API: Chunk, generate embeddings (Azure OpenAI)
+    API->>API: Save chunks to Vector DB (Pinecone)
+    API->>DB: Update stage Vectorization: Finished
+    API-->>UI: 200 OK
 ```
 
 ---
@@ -158,40 +185,37 @@ sequenceDiagram
 | Category | Technology | Purpose |
 |:---|:---|:---|
 | **Framework** | FastAPI + Uvicorn | Async web framework and ASGI server |
-| **ORM** | SQLAlchemy 2.0 (async) | Database access with async support |
-| **Database** | Azure SQL Server (ODBC 18) | Primary relational data store |
-| **Document DB** | Azure Cosmos DB (MongoDB API) | Document content storage (planned) |
-| **File Storage** | Azure Blob Storage | Original and processed file storage |
-| **Message Broker** | RabbitMQ (aio-pika) | Async job queue for OCR processing |
-| **Auth** | python-jose + bcrypt | JWT tokens and password hashing |
-| **OCR** | PaddleOCR + EasyOCR | Dual-engine text extraction |
-| **PDF** | PyMuPDF (fitz) | PDF parsing and image extraction |
-| **Image** | OpenCV (headless) | Image preprocessing for OCR |
-| **Config** | Pydantic Settings | Environment-based configuration |
-| **Package Manager** | uv | Fast Python dependency management |
+| **ORM** | SQLAlchemy 2.0 (async) | Relational database access with async connection pooling |
+| **Relational Database** | Azure SQL Server (ODBC 18) | Primary store for users, permissions, documents, and audit logs |
+| **Document Database** | Azure Cosmos DB (MongoDB API) | Full JSON layout, OCR text, and processing metadata storage |
+| **Vector Database** | Pinecone | Vector database for storing document chunk embeddings |
+| **File Storage** | Azure Blob Storage | Original files, partitioned by category |
+| **Message Broker** | RabbitMQ (Dev) / Azure Service Bus (Prod) | Async message distribution queues |
+| **Auth** | python-jose + bcrypt | JWT tokens and secure password hashing |
+| **AI Models (Cloud)** | Azure Document Intelligence + Azure OpenAI | Premium OCR and GPT document classification |
+| **AI Models (Local)** | PaddleOCR + EasyOCR | Self-hosted fallback OCR engine |
+| **Config** | Pydantic Settings | Environment variables management |
+| **Package Manager** | uv | Fast Python dependency compiler |
 
 ### Frontend (TypeScript)
 
 | Category | Technology | Purpose |
 |:---|:---|:---|
 | **Framework** | React 18 | Component-based UI library |
-| **Build Tool** | Vite 5 (SWC) | Fast development and production builds |
-| **Language** | TypeScript | Type-safe JavaScript |
-| **Styling** | Tailwind CSS 3 | Utility-first CSS framework |
-| **Components** | shadcn/ui (Radix UI) | Accessible, customizable component library |
+| **Build Tool** | Vite 5 (SWC) | Development and bundler tool |
+| **Language** | TypeScript | Type safety |
+| **Styling** | Tailwind CSS 3 | Utility-first CSS styling |
+| **Components** | shadcn/ui (Radix UI) | Premium customizable components |
 | **Routing** | react-router-dom v6 | Client-side routing |
-| **Data Fetching** | TanStack React Query | Server state management |
-| **Forms** | React Hook Form + Zod | Form handling and validation |
-| **Animations** | Framer Motion | Page and component animations |
-| **i18n** | Custom React Context | English/Arabic with RTL support |
+| **Data Fetching** | TanStack React Query | Server state caching and querying |
+| **i18n** | Custom React Context | Full English and Arabic (RTL) localization |
 
 ### Infrastructure
 
 | Category | Technology | Purpose |
 |:---|:---|:---|
-| **Containers** | Docker + Docker Compose | Service orchestration |
-| **Message Broker** | RabbitMQ 3 (Alpine) | Asynchronous job distribution |
-| **Cloud** | Microsoft Azure | SQL Server, Blob Storage, Cosmos DB |
+| **Containers** | Docker + Docker Compose | Multi-container dev topology |
+| **Cloud Hosting** | Microsoft Azure | Relational DB, Blob Storage, Cosmos DB, AI Services |
 
 ---
 

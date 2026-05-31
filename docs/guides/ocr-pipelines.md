@@ -1,10 +1,16 @@
 # Processing Pipelines
 
-The OCR worker implements a **smart routing pipeline** that automatically detects document language and selects the optimal OCR engine. This page documents the pipeline logic, PDF/image processing, and the RabbitMQ-based async architecture. For environment setup and configuration, see the [OCR API Setup](../setup/ocr-worker.md) page.
+The NassaQ platform provides two distinct, state-of-the-art processing pipelines depending on your organizational needs: the **Self-Hosted Local Pipeline** and the **AI Foundry Cloud Ingestion Pipeline**. This page documents the operational logic, processing stages, and architecture of both pipelines.
 
-## Smart OCR Router
+---
 
-The core innovation is a two-stage language detection approach: run PaddleOCR first (fast), then check for Arabic text and switch to EasyOCR if needed.
+## 1. Self-Hosted Local Ingestion Pipeline
+
+The **Self-Hosted Local Pipeline** utilizes open-source machine learning models executing on your own CPU or GPU infrastructure. It is optimized for 100% data residency and offline deployment.
+
+### Smart OCR Router
+
+The local worker implements a two-stage routing pipeline: it runs PaddleOCR first (highly optimized for speed and Latin layouts), analyzes the text, and fallback-routes to EasyOCR if Arabic characters are detected.
 
 ```mermaid
 flowchart TD
@@ -12,9 +18,9 @@ flowchart TD
     B --> C{Contains Arabic?}
     C -->|No| D[Return PaddleOCR Result]
     C -->|Yes| E[EasyOCR with paragraph=True]
-    E --> F{EasyOCR produced text?}
     F -->|Yes| G[Return EasyOCR Result]
     F -->|No| D
+    E --> F{EasyOCR produced text?}
 
     style B fill:#4CAF50,color:#fff
     style E fill:#2196F3,color:#fff
@@ -26,335 +32,115 @@ flowchart TD
 
 | Engine | Strengths | Weaknesses |
 |--------|-----------|------------|
-| **PaddleOCR** | Very fast, excellent for English/numbers/tables | Arabic text often appears with disjointed letters and wrong reading order |
-| **EasyOCR** | Accurate Arabic with `paragraph=True` for correct RTL reconstruction | Slower, especially on CPU |
+| **PaddleOCR** | Fast; superior on English/Latin text, numeric matrices, and complex tables | Disjointed letters and incorrect right-to-left layout reconstruction for Arabic cursives |
+| **EasyOCR** | Excellent Arabic script recognition with `paragraph=True` for RTL layout recovery | Slower, especially on CPU resources |
 
-The smart router gives you the best of both: PaddleOCR's speed for English content, with automatic fallback to EasyOCR's accuracy for Arabic content.
+The smart router runs a simple regex character-range check on Paddle's output to find Arabic text (Unicode range: `U+0600` to `U+06FF`). If found, it routes the page to EasyOCR's reader.
 
-### Language Detection
+### PDF & Image Processing
 
-Arabic text is detected using a simple Unicode range check:
+- **PDF Documents**: Uses a **three-tier extraction strategy** per page.
+    1. **Tier 1 (Embedded Text)**: Direct digital text layer extraction via PyMuPDF (`page.get_text()`).
+    2. **Tier 2 (Embedded Images)**: Locates embedded images within the PDF, extracts raw bytes, decodes them with OpenCV, and processes them through the smart OCR router.
+    3. **Tier 3 (Full-Page OCR)**: If no digital text or embedded images are found (e.g., scanned documents), renders the entire page to a high-resolution pixmap and routes it through the smart OCR router.
+- **Images (JPEG/PNG)**: Decodes raw image buffers into OpenCV BGR formats and processes them directly via the smart OCR router.
+- **Text Files**: Directly decodes content from UTF-8 without running any OCR engines.
 
-```python
-def contains_arabic(text: str) -> bool:
-    """Checks if text contains Arabic characters (Unicode range: U+0600-U+06FF)."""
-    arabic_pattern = re.compile(r"[\u0600-\u06FF]")
-    return bool(arabic_pattern.search(text))
-```
+### Storage & Local Output
 
-The Unicode block `U+0600`--`U+06FF` covers the Arabic script used in Arabic, Persian, Urdu, and related languages.
+Extracted text and structural metadata are saved on the local worker's disk under `OUTPUT_DIR` in three files:
+- **Source Copy**: `{timestamp}_SOURCE_{filename}` (original file).
+- **Text File**: `{timestamp}_TARGET_{filename}.txt` (extracted plain text).
+- **Metadata JSON**: `Details_{timestamp}_{filename}.json` (confidence score logs, pages, and model routing timeline).
 
-### Pipeline Function
+---
 
-The `smart_ocr_pipeline` function in `app/api/deps.py` orchestrates the routing:
+## 2. AI Foundry Cloud Ingestion Pipeline
 
-```python
-def smart_ocr_pipeline(paddle_engine, easy_engine, img_array) -> Tuple[str, float, str]:
-    """Returns (extracted_text, confidence_score, model_name)."""
-
-    text, conf = ocr_with_paddle(paddle_engine, img_array)
-    used_model = "paddle"
-
-    if contains_arabic(text):
-        easy_text, easy_conf = ocr_with_easy(easy_engine, img_array)
-        if easy_text.strip():
-            return easy_text, easy_conf, "easyocr (auto-switched)"
-
-    return text, conf, used_model
-```
-
-### PaddleOCR Processing
-
-PaddleOCR returns results in different formats depending on the version. The worker handles both:
-
-- **Dict format** (newer): `{"rec_texts": [...], "rec_scores": [...]}`
-- **List format** (legacy): `[[bbox, (text, confidence)], ...]`
-
-The confidence score is the average of all detected text regions.
-
-### EasyOCR Processing
-
-EasyOCR is called with `paragraph=True`, which is critical for Arabic text:
-
-- Groups nearby text detections into paragraphs
-- Maintains correct right-to-left reading order
-- Handles cursive Arabic script connectivity
-
-The confidence score for EasyOCR is set to `0.95` when text is detected (EasyOCR's paragraph mode doesn't return per-word confidence).
-
-## Document Processing
-
-The worker handles three document types, each with a different processing strategy.
-
-### Supported File Types
-
-| Extension | Type | Processing Method |
-|-----------|------|-------------------|
-| `.pdf` | PDF Document | Multi-strategy extraction |
-| `.jpg`, `.jpeg`, `.png` | Image | Direct OCR |
-| `.txt` | Plain Text | Direct read (no OCR) |
-
-### PDF Processing Pipeline
-
-PDFs receive the most sophisticated handling with a **three-tier extraction strategy** applied per page:
+The **AI Foundry Cloud Ingestion Pipeline** is a premium, enterprise-tier pipeline utilizing Microsoft Azure's cloud cognitive models. It delivers advanced layouts, automated categorization, and deep database integrations.
 
 ```mermaid
 flowchart TD
-    A[PDF Document] --> B[Load with PyMuPDF]
-    B --> C[For Each Page]
-    
-    C --> D[Extract embedded text]
-    D --> E{Text found?}
-    E -->|Yes| F[Add to page content]
-    
-    C --> G[Extract embedded images]
-    G --> H{Images found?}
-    H -->|Yes| I[OCR each image via Smart Pipeline]
-    I --> J[Append image text to page]
-    
-    E -->|No| K{Any images?}
-    H -->|No| K
-    K -->|No| L[Full-page OCR fallback]
-    L --> M[Render page as image]
-    M --> N[Smart OCR Pipeline]
-    N --> O[Add to page content]
-    
-    F --> P[Join all pages]
-    J --> P
-    O --> P
-    P --> Q[Final extracted text]
-    
-    style D fill:#4CAF50,color:#fff
-    style I fill:#2196F3,color:#fff
-    style L fill:#FF9800,color:#fff
+    A[Message Received on Queue] --> B[Download original from Azure Blob]
+    B --> C["Azure Document Intelligence<br/><i>prebuilt-layout model</i>"]
+    C --> D[Extract structural Markdown & text]
+    D --> E["Azure OpenAI LLM Classifier<br/><i>gpt-4.1-mini</i>"]
+    E --> F[Determine Category, Confidence & Reasoning]
+    F --> G[Upload organized file to category-based Blob folder]
+    G --> H[Delete temporary original upload from Blob]
+    H --> I[Write full JSON details to Cosmos DB]
+    I --> J[Write stats & cost transactions to SQL Ocr_Results]
+    J --> K[Update SQL Stage OCR & Classification -> Finished]
+
+    style C fill:#0078d4,color:#fff
+    style E fill:#10b981,color:#fff
+    style G fill:#f59e0b,color:#fff
+    style I fill:#0078d4,color:#fff
+    style J fill:#10b981,color:#fff
 ```
 
-**Tier 1 -- Embedded Text:** Uses `page.get_text()` to extract any text layer directly. This handles digital/native PDFs with no OCR needed.
+### Stage 1: Document Intelligence Layout Extraction
 
-**Tier 2 -- Embedded Images:** Uses `page.get_images()` to find images embedded in the page. Each image is extracted, decoded with OpenCV, and run through the smart OCR pipeline.
+When a file is picked up by the AI Foundry worker, it downloads the file from Azure Blob Storage and forwards it to the **Azure Document Intelligence** endpoint.
+- **Model**: `prebuilt-layout`
+- **Configuration**: `high_resolution=True`, `locale="ar"`, `output_format="markdown"`
+- **Result**: Document layout (headers, footers, paragraphs, text styles) is accurately preserved. **Tables** are parsed and written directly into clean, standardized Markdown tables instead of getting flattened into raw strings.
 
-**Tier 3 -- Full-Page OCR:** If a page has neither text nor images (e.g., a scanned document), the entire page is rendered as a pixmap and processed through the smart OCR pipeline.
+### Stage 2: AI Classification & Automated Directory Organization
 
-Pages are joined with `-------------------` separators in the final output.
+The extracted plain text is evaluated by **Azure OpenAI** (`gpt-4.1-mini`) for classification.
+- **Input**: Extracted text is fed to the LLM with a strict system prompt containing predefined organizational categories (e.g. `Invoice`, `Report`, `Contract`, `Official Letter`, `Resume`).
+- **Response**: The model returns a structured JSON payload containing:
+    - `category`: The designated class name.
+    - `confidence`: Classification confidence percentage (0.0 to 1.0).
+    - `reasoning`: A detailed multi-line explanation of the classification decision.
+- **Blob Auto-Organization**: If the classification is highly confident, the worker automatically re-uploads the document to Azure Blob Storage under a category-partitioned directory (e.g., `invoice/bill_99.pdf` or `contract/lease.pdf`) and deletes the temporary, loose file.
 
-### Image Processing
+### Stage 3: Cosmos DB (NoSQL Layout Persistence)
 
-Images (JPEG, PNG) are processed directly:
+Instead of saving flat files on disk, the premium pipeline commits the entire document record to **Azure Cosmos DB** (MongoDB API). This allows NassaQ to perform queries, structured indexing, and full-text searches.
 
-1. Decode raw bytes to a NumPy array via `np.frombuffer`
-2. Convert to OpenCV BGR format via `cv2.imdecode`
-3. Run through the smart OCR pipeline
-4. Return extracted text and metadata
-
-### Text File Processing
-
-Plain text files are simply decoded from UTF-8. No OCR is needed:
-
-```python
-def process_text_file(file_content: bytes) -> tuple[str, dict]:
-    text = file_content.decode("utf-8")
-    metadata = {"page": 1, "method": "Direct Read", "confidence": 1.0}
-    return text, metadata
-```
-
-## RabbitMQ Consumer Architecture
-
-The OCR worker operates as an **async message consumer**, processing documents published by the backend server.
-
-### Message Flow
-
-```mermaid
-sequenceDiagram
-    participant Server as Backend Server
-    participant RMQ as RabbitMQ
-    participant Worker as OCR Worker
-    participant Blob as Azure Blob Storage
-    participant DB as SQL Server
-
-    Server->>RMQ: Publish to ocr_queue
-    Note over RMQ: Message persisted (durable queue)
-    
-    Worker->>RMQ: Consume (prefetch_count=1)
-    RMQ->>Worker: Deliver message
-    
-    Worker->>DB: Update status → "Processing"
-    Worker->>Blob: Download file
-    Blob-->>Worker: File bytes
-    
-    Worker->>Worker: Run OCR pipeline
-    Worker->>Worker: Save output locally
-    
-    alt Success
-        Worker->>DB: Update status → "Finished"
-        Worker->>DB: Update mongo_doc_id (placeholder UUID)
-        Worker->>RMQ: ACK message
-    else Failure
-        Worker->>DB: Update status → "Failed" + error
-        Worker->>RMQ: NACK + requeue
-    end
-```
-
-### Message Format
-
-Messages published to `ocr_queue` follow this structure:
-
+**Cosmos Document Schema Example:**
 ```json
 {
+    "_id": ObjectId("64f5a..."),
     "doc_id": 42,
-    "file_path": "https://account.blob.core.windows.net/container/path/file.pdf",
-    "filename": "report.pdf",
-    "user_id": 7
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `doc_id` | `int` | Document ID in the SQL Server `Documents` table |
-| `file_path` | `str` | Azure Blob Storage URL or path to the uploaded file |
-| `filename` | `str` | Original filename (used for extension detection) |
-| `user_id` | `int` | ID of the user who uploaded the document |
-
-### Consumer Configuration
-
-| Setting | Value | Purpose |
-|---------|-------|---------|
-| `prefetch_count` | `1` | Process one message at a time (prevents overload) |
-| Queue durability | `durable=True` | Messages survive broker restarts |
-| Delivery mode | `PERSISTENT` | Messages written to disk |
-| Error handling | `requeue=True` | Failed messages return to the queue |
-
-### Message Handler Factory
-
-The worker uses a factory pattern to create the message callback with access to shared resources:
-
-```python
-def create_message_handler(paddle_engine, easy_engine, blob):
-    async def handle_message(message: dict):
-        try:
-            await process_document(message, paddle_engine, easy_engine, blob)
-        except Exception as e:
-            logger.error(f"Message handler caught error: {e}")
-    return handle_message
-```
-
-This pattern avoids global state by injecting the OCR engines and blob client at startup.
-
-## Database Operations
-
-The worker interacts with two SQL Server tables. For the full table definitions, see the [Database Schema](../concepts/database.md#processing_status) page.
-
-### Processing Status Updates
-
-The `Processing_Status` table tracks each document's OCR progress:
-
-```mermaid
-stateDiagram-v2
-    [*] --> Queued: Server creates record
-    Queued --> Processing: Worker picks up message
-    Processing --> Finished: OCR completed
-    Processing --> Failed: Error occurred
-    Failed --> Processing: Message requeued
-```
-
-Status updates use the `update_status` function with **exponential backoff retry** for handling Azure SQL cold starts and transient connection errors:
-
-```python
-async def db_operation_with_retry(operation, *args, **kwargs):
-    for attempt in range(1, settings.SQL_MAX_RETRIES + 1):
-        try:
-            return await operation(*args, **kwargs)
-        except OperationalError as e:
-            if attempt < settings.SQL_MAX_RETRIES:
-                delay = settings.SQL_RETRY_DELAY_BASE ** attempt  # 2s, 4s, 8s
-                await asyncio.sleep(delay)
-            else:
-                raise
-```
-
-### Document ID Update
-
-After processing, the worker updates the `Documents.mongo_doc_id` field with a placeholder UUID. This field is intended for future MongoDB integration where OCR output will be stored.
-
-!!! note "Planned: MongoDB Migration"
-    Currently, OCR output (extracted text + metadata JSON) is saved to the local filesystem under `OUTPUT_DIR`. The codebase contains `TODO` comments indicating this will be migrated to MongoDB, with `mongo_doc_id` becoming a real reference to the stored OCR output. See the [Roadmap](../project/roadmap.md#mongodb-migration-for-ocr-output) for migration details.
-
-## Output Format
-
-For each processed document, the worker generates three local files:
-
-| File | Pattern | Content |
-|------|---------|---------|
-| Source copy | `{timestamp}_SOURCE_{filename}` | Original file downloaded from blob |
-| Extracted text | `{timestamp}_TARGET_{filename}.txt` | Plain text output from OCR |
-| Metadata | `Details_{timestamp}_{filename}.json` | Processing details and confidence scores |
-
-### Metadata JSON Structure
-
-```json
-{
-    "original_filename": "report.pdf",
+    "filename": "monthly_report.pdf",
     "file_type": ".pdf",
-    "upload_timestamp": "20260226_143022",
-    "model_usage_log": [
-        "Page 1: paddle",
-        "Page 2: easyocr (auto-switched)"
-    ],
-    "page_count": 2,
-    "source_file_path": "/ocr/documents/20260226_143022_SOURCE_report.pdf",
-    "text_file_path": "/ocr/documents/20260226_143022_TARGET_report.pdf.txt",
-    "extraction_details": [
-        {
-            "page": 1,
-            "method": "Direct Text + paddle",
-            "confidence": 0.94
-        },
-        {
-            "page": 2,
-            "method": "Full Page easyocr (auto-switched)",
-            "confidence": 0.95
-        }
-    ],
-    "status": "success",
-    "overall_confidence": 0.95,
-    "error_message": null
+    "blob_path": "report/monthly_report.pdf",
+    "extracted_text": "# Monthly Report\n...",
+    "ocr": {
+        "page_count": 5,
+        "word_count": 1420,
+        "avg_confidence": 0.98,
+        "primary_language": "ar",
+        "cost_usd": 0.05,
+        "elapsed_seconds": 3.2,
+        "chunks_used": 12
+    },
+    "classification": {
+        "category": "Report",
+        "confidence": 0.99,
+        "reasoning": "The document contains corporate updates and data tables...",
+        "tokens_used": 850,
+        "cost_usd": 0.0012,
+        "error": null
+    },
+    "processed_at": "2026-05-31T17:28:53Z"
 }
 ```
 
-### Confidence Scoring
+### Stage 4: SQL Server Transactional Metric Sync
 
-| Scenario | Score |
-|----------|-------|
-| Direct text extraction (no OCR) | `1.0` |
-| PaddleOCR | Average of per-region confidence scores |
-| EasyOCR (paragraph mode) | `0.95` (fixed -- paragraph mode doesn't return per-word scores) |
-| Overall (multi-page PDF) | Average confidence across all OCR-processed pages |
+The worker updates the core database tables to reflect processing success. Specifically, it writes transactional stats to the SQL `Ocr_Results` table, linking it back to the `Documents` table via `doc_id`.
 
-## Direct API Endpoint
+**SQL Sync Fields:**
+- `page_count` & `word_count`: Extracted dimensions.
+- `avg_confidence`: Document text extraction confidence.
+- `primary_language`: Automatically identified language code.
+- `category` & `classification_confidence`: Categorization metrics.
+- `cost_usd_ocr`: Exact Azure Document Intelligence transaction cost based on page volume.
+- `cost_usd_classification`: Exact Azure OpenAI token consumption costs.
+- `processed_at`: Ingestion completion timestamp.
 
-In addition to the RabbitMQ consumer, the OCR service exposes a REST endpoint for direct file processing:
-
-### `POST /api/v1/docs`
-
-Accepts multiple files via multipart form upload and processes them synchronously.
-
-**Request:**
-
-```bash
-curl -X POST http://localhost:8001/api/v1/docs \
-  -F "files=@document.pdf" \
-  -F "files=@photo.jpg"
-```
-
-**Response:**
-
-```json
-{
-    "status": "batch_complete",
-    "batch_id": "20260226_143022",
-    "processed_files_count": 2,
-    "output_directory": "documents"
-}
-```
-
-!!! warning "Not for Production Use"
-    The direct endpoint processes files synchronously and does not update the database. It is intended for **testing and development** only. In production, documents flow through the backend server's upload endpoint, which handles blob storage, database records, and RabbitMQ publishing.
+By offloading heavy OCR texts to Cosmos DB while preserving key transactional metrics in SQL Server, NassaQ maintains a highly performant and auditable relational core.

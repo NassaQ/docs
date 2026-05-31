@@ -67,8 +67,9 @@ BLOB_STORAGE_TYPE="azure"
 BLOB_CONNECTION_STR="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=..."
 BLOB_STORAGE_CONTAINER_NAME="your-container"
 
-# Message Broker
-MESSAGE_BROKER_URL="amqp://guest:guest@localhost:5672/"
+# Message Broker & Ingest Backend
+PROCESSING_BACKEND="ocr_api" # Options: "ocr_api" (local) or "ai_foundry" (cloud)
+MESSAGE_BROKER_URL="amqp://guest:guest@localhost:5672/" # Use AMQP for RabbitMQ in dev, or ASB connection string in production
 
 # JWT Configuration
 ACCESS_TOKEN_EXPIRE_MINUTES=1
@@ -278,9 +279,10 @@ classDiagram
     }
     
     class AzureServiceBusBroker {
-        +connect() stub
-        +publish() stub
-        +close() stub
+        +connect()
+        +publish(queue_name, message)
+        +consume(queue_name, callback)
+        +close()
     }
     
     BaseBroker <|-- RabbitMQBroker
@@ -288,4 +290,4 @@ classDiagram
 ```
 
 !!! note "Azure Service Bus"
-    The `AzureServiceBusBroker` class exists as a stub. When `ENVIRONMENT="production"`, the `get_broker` function raises `NotImplementedError("Azure Bus not configured yet")`. RabbitMQ is used in all current environments. For the full Docker Compose orchestration, see the [Deployment](deployment.md) page.
+    The `AzureServiceBusBroker` class is fully implemented and operational. In the production environment (configured by setting `ENVIRONMENT="production"` in your environment variables), the backend server automatically initiates `AzureServiceBusBroker` using the configured `MESSAGE_BROKER_URL` (which should contain your Azure Service Bus connection string) instead of RabbitMQ. This ensures enterprise-grade queues with built-in retries, DLQs, and zero operational infrastructure management. For details on production container topologies, see the [Deployment Guide](deployment.md).

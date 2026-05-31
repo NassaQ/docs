@@ -66,7 +66,8 @@ nav:
     - Deployment Guide: setup/deployment.md
     - Backend Server Setup: setup/backend.md
     - Frontend UI Setup: setup/frontend.md
-    - OCR Worker Setup: setup/ocr-worker.md
+    - OCR Worker Setup (Self-Hosted): setup/ocr-worker.md
+    - AI Foundry Worker Setup (Cloud): setup/ai-foundry.md
   - Core Concepts:
     - Database Schema: concepts/database.md
     - Security & Auth: concepts/security.md
